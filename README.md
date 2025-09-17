@@ -33,7 +33,7 @@ Note: Some video file formats cannot be played inline in most browsers. In the g
 -FFmpeg (for video posters/thumbnails).
 	Needed only if you check “Generate posters (ffmpeg)” in the Videos/Mixed tabs.
 	Must be installed and on PATH so ffmpeg is found (ffmpeg -version).
-	If missing, the app still works—posters are just skipped.
+	If missing, the app still works, posters are just skipped.
 
 
 ## Compile to executable
