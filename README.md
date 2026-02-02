@@ -3,6 +3,11 @@ Built with the assistance of ChatGPT
 
 ## Features
 
+2/2/2026 - **Updated Feature**
+Gallery Builder now has the option to blur image and video thumbnails in the html. There is a checkbox to enable blur by default.
+Blur can also be toggled on and off in the html report itself. 
+This feature was added by the smart and talented, Kevin Salhoff!!
+
 Gallery Builder will take images, videos or a mix of images and videos and create and html based gallery view of the files. 
 
 	-Browse to the folder of images, videos or combination of images and videos.
