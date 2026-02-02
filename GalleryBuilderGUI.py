@@ -19,6 +19,27 @@ except Exception:
 def which_ffmpeg():
     return shutil.which("ffmpeg")
 
+def js_builder(root: pathlib.Path):
+    with open(f"{root.parent}\\script.js", "w") as w:
+        w.write("""
+document.addEventListener("DOMContentLoaded", () => {
+	const toggle = document.getElementById("toggle-switch");
+	
+	function handleToggleSwitchChange() {
+		if (toggle.checked) {
+			document.documentElement.style.setProperty('--blur-level', 'blur(5px)');
+		} else {
+        // Set --blur-level to 'blur(0px)' when the switch is OFF
+			document.documentElement.style.setProperty('--blur-level', 'blur(0px)');
+		}
+	}
+	
+	handleToggleSwitchChange();
+	
+	toggle.addEventListener("change", handleToggleSwitchChange);
+
+});""")
+    
 # -------- Photo builder (images) --------
 IMG_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.bmp', '.tif', '.tiff', '.svg'}
 
@@ -62,9 +83,14 @@ def make_thumbs(paths, root: pathlib.Path, thumb_dir: pathlib.Path, size: int, l
             log(f"[thumb-skip] {p.name}: {e}")
     return mapping
 
-def write_photos_html(out_path: pathlib.Path, title: str, items):
+def write_photos_html(out_path: pathlib.Path, title: str, items, blur: bool):
+    if blur:
+        toggle_state = "checked"
+    else:
+        toggle_state = "unchecked"
+    
     css = """
-:root { --gap:12px; --bg:#0b0c0f; --fg:#eaecef; --muted:#9aa4b2; }
+:root { --gap:12px; --bg:#0b0c0f; --fg:#eaecef; --muted:#9aa4b2; --blur-level: blur(10px); }
 html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 header{position:sticky;top:0;z-index:10;backdrop-filter:blur(8px);background:rgba(0,0,0,.35);border-bottom:1px solid #1d2127}
 .bar{display:flex;align-items:center;gap:12px;padding:12px clamp(12px,4vw,28px)}
@@ -72,8 +98,16 @@ header{position:sticky;top:0;z-index:10;backdrop-filter:blur(8px);background:rgb
 main{padding:clamp(12px,3vw,28px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:var(--gap)}
 figure{margin:0;background:#0f1217;border:1px solid #1f2630;border-radius:16px;overflow:hidden}
-.thumb{width:100%;height:160px;object-fit:cover;display:block;background:#0b0b0b}
+.thumb{width:100%;height:160px;object-fit:cover;display:block;background:#0b0b0b;filter: var(--blur-level);}
 figcaption{padding:10px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.switch {position: relative;display: inline-block;width: 50px;height: 24px;}
+.switch input {opacity: 0;width: 0;height: 0;}
+.slider {position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;background-color: #ccc;transition: 0.4s;border-radius: 24px;}
+.slider::before {position: absolute;content: "";height: 16px;width: 16px;border-radius: 50%;left: 4px;bottom: 4px;background-color: white;transition: 0.4s;}
+input:checked + .slider {background-color: #4caf50;}
+input:checked + .slider::before {transform: translateX(26px);}
+.toggle-label {font-size: 15px;margin-left: 10px;cursor: pointer;color: var(--muted)}
+img:hover {filter: blur(0px);webkit-filter: blur(0px);}
 """
     items_html = []
     for thumb, full, label in items:
@@ -93,14 +127,24 @@ figcaption{padding:10px;font-size:12px;color:var(--muted);white-space:nowrap;ove
   <h1 style="margin:0;font-size:18px">{html.escape(title)}</h1>
   <span class="muted" style="margin-left:auto">{len(items_html)} images • built {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
 </div></header>
+<div align='right'>
+    <span class='toggle-label'>Blur Thumbnails</span>
+        <label class="switch">
+        <input type="checkbox" id="toggle-switch" {toggle_state}>
+        <span class="slider"></span>
+        </label>
+</div>
 <main><div class="grid">
 {os.linesep.join(items_html)}
 </div></main>
+<script src="script.js"></script>
 </body></html>"""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(doc, encoding='utf-8')
+    js_builder(out_path)
 
-def build_photos(folder: pathlib.Path, out_path: pathlib.Path, title: str, recursive: bool, make_thumbnails: bool, thumb_size: int, thumb_dir_name: str, log=lambda *_: None):
+
+def build_photos(folder: pathlib.Path, out_path: pathlib.Path, title: str, recursive: bool, make_thumbnails: bool, thumb_size: int, thumb_dir_name: str, p_blur: bool, log=lambda *_: None):
     images = find_images(folder, recursive=recursive)
     if not images:
         raise SystemExit("No images found.")
@@ -113,15 +157,15 @@ def build_photos(folder: pathlib.Path, out_path: pathlib.Path, title: str, recur
         rel_str = str(rel).replace(os.sep, '/')
         thumb_rel = thumb_map.get(rel_str, rel_str)
         items.append((thumb_rel, rel_str, rel.name))
-    write_photos_html(out_path, title, items)
+    write_photos_html(out_path, title, items, p_blur)
     log(f"Wrote {out_path} with {len(items)} images.")
 
 # -------- Video builder --------
-VIDEO_EXTS = {".mp4", ".m4v", ".mov", ".webm", ".ogv", ".mkv", ".avi"}
-EMBED_EXTS = {".mp4", ".webm", ".ogv"}
+VIDEO_EXTS = {".mp4", ".m4v", ".mov", ".webm", ".ogv", ".mkv", ".avi", ".3gp"}
+EMBED_EXTS = {".mp4", ".webm", ".ogv", ".3gp"}
 MIME_BY_EXT = {
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
-    ".webm": "video/webm", ".ogv": "video/ogg", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo",
+    ".webm": "video/webm", ".ogv": "video/ogg", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo", ".3gp": "video/3gpp",
 }
 
 def find_videos(root: pathlib.Path, recursive: bool = True):
@@ -179,9 +223,13 @@ def source_tag(rel_path: str):
     type_attr = f' type="{mime}"' if mime else ""
     return f'<source src="{html.escape(rel_path)}"{type_attr}>'
 
-def write_videos_html(out_path: pathlib.Path, title: str, items):
+def write_videos_html(out_path: pathlib.Path, title: str, items, blur: bool):
+    if blur:
+        toggle_state = "checked"
+    else:
+        toggle_state = "unchecked"
     css = """
-:root { --gap:12px; --bg:#0b0c0f; --fg:#eaecef; --muted:#9aa4b2; }
+:root { --gap:12px; --bg:#0b0c0f; --fg:#eaecef; --muted:#9aa4b2; --blur-level: blur(10px); }
 html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 header{position:sticky;top:0;z-index:10;backdrop-filter:blur(8px);background:rgba(0,0,0,.35);border-bottom:1px solid #1d2127}
 .bar{display:flex;align-items:center;gap:12px;padding:12px clamp(12px,4vw,28px)}
@@ -190,6 +238,8 @@ main{padding:clamp(12px,3vw,28px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--gap)}
 figure{margin:0;background:#0f1217;border:1px solid #1f2630;border-radius:16px;overflow:hidden;display:flex;flex-direction:column}
 .video-wrap{position:relative;aspect-ratio:16/9;background:#000}
+.video-wrap video {filter:var(--blur-level);transition: filter 0.3s ease;}
+.video-wrap:hover video, .video-wrap video.playing {filter: none;}
 video{width:100%;height:100%;display:block;background:#000}
 figcaption{padding:10px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .controls{display:flex;gap:8px;padding:8px 10px;border-top:1px solid #1f2630;background:#0f1217}
@@ -197,6 +247,13 @@ figcaption{padding:10px;font-size:12px;color:var(--muted);white-space:nowrap;ove
 .controls a:hover{text-decoration:underline}
 .coverlink{position:absolute; inset:0; display:block; text-decoration:none}
 .coverlink:focus-visible{outline:2px solid #4b9fff; outline-offset:2px}
+.switch {position: relative;display: inline-block;width: 50px;height: 24px;}
+.switch input {opacity: 0;width: 0;height: 0;}
+.slider {position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;background-color: #ccc;transition: 0.4s;border-radius: 24px;}
+.slider::before {position: absolute;content: "";height: 16px;width: 16px;border-radius: 50%;left: 4px;bottom: 4px;background-color: white;transition: 0.4s;}
+input:checked + .slider {background-color: #4caf50;}
+input:checked + .slider::before {transform: translateX(26px);}
+.toggle-label {font-size: 15px;margin-left: 10px;cursor: pointer;color: var(--muted);}
 """
     items_html = []
     for (poster, video_rel, label, embeddable) in items:
@@ -205,7 +262,7 @@ figcaption{padding:10px;font-size:12px;color:var(--muted);white-space:nowrap;ove
             items_html.append(
                 f'<figure>'
                 f'  <div class="video-wrap">'
-                f'    <video controls preload="metadata" {"poster="+html.escape(poster) if poster else ""}>'
+                f'    <video controls preload="metadata" onplay=\"this.classList.add(\'playing\')\" onpause=\"this.classList.remove(\'playing\')\" {"poster="+html.escape(poster) if poster else ""}>'
                 f'      {source_tag(video_rel)}'
                 f'      Your browser does not support the video tag.'
                 f'    </video>'
@@ -244,14 +301,24 @@ figcaption{padding:10px;font-size:12px;color:var(--muted);white-space:nowrap;ove
   <h1 style="margin:0;font-size:18px">{html.escape(title)}</h1>
   <span class="muted" style="margin-left:auto">{len(items_html)} videos • built {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
 </div></header>
+<div align='right'>
+    <span class='toggle-label'>Blur Thumbnails</span>
+        <label class="switch">
+        <input type="checkbox" id="toggle-switch" {toggle_state}>
+        <span class="slider"></span>
+        </label>
+</div>
 <main><div class="grid">
 {os.linesep.join(items_html)}
 </div></main>
+<script src="script.js"></script>
 </body></html>"""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(doc, encoding='utf-8')
+    js_builder(out_path)
 
-def build_videos(folder: pathlib.Path, out_path: pathlib.Path, title: str, recursive: bool, make_posters_flag: bool, poster_time: float, poster_dir_name: str, log=lambda *_: None):
+
+def build_videos(folder: pathlib.Path, out_path: pathlib.Path, title: str, recursive: bool, make_posters_flag: bool, poster_time: float, poster_dir_name: str, v_blur: bool, log=lambda *_: None):
     videos = find_videos(folder, recursive=recursive)
     if not videos:
         raise SystemExit("No videos found.")
@@ -265,11 +332,16 @@ def build_videos(folder: pathlib.Path, out_path: pathlib.Path, title: str, recur
         poster_rel = poster_map.get(rel_str)
         embeddable = pathlib.Path(rel_str).suffix.lower() in EMBED_EXTS
         items.append((poster_rel, rel_str, rel.name, embeddable))
-    write_videos_html(out_path, title, items)
+    write_videos_html(out_path, title, items, v_blur)
     log(f"Wrote {out_path} with {len(items)} videos.")
 
 # === Mixed (images + videos) ===
-def write_mixed_html(out_path: pathlib.Path, title: str, items):
+def write_mixed_html(out_path: pathlib.Path, title: str, items, blur: bool):
+    if blur:
+        toggle_state = "checked"
+    else:
+        toggle_state = "unchecked"
+
     """
     items: list of dicts:
       {
@@ -281,7 +353,7 @@ def write_mixed_html(out_path: pathlib.Path, title: str, items):
       }
     """
     css = """
-:root { --gap:12px; --bg:#0b0c0f; --fg:#eaecef; --muted:#9aa4b2; --accent:#14b8a6; }
+:root { --gap:12px; --bg:#0b0c0f; --fg:#eaecef; --muted:#9aa4b2; --accent:#14b8a6; --blur-level: blur(10px); }
 html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 header{position:sticky;top:0;z-index:10;backdrop-filter:blur(8px);background:rgba(0,0,0,.35);border-bottom:1px solid #1d2127}
 .bar{display:flex;align-items:center;gap:12px;padding:12px clamp(12px,4vw,28px)}
@@ -290,8 +362,12 @@ main{padding:clamp(12px,3vw,28px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--gap)}
 figure{margin:0;background:#0f1217;border:1px solid #1f2630;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;position:relative}
 .thumbwrap{position:relative;background:#000}
-.thumbimg{width:100%;height:160px;object-fit:cover;display:block;background:#0b0b0b}
+.thumbwrap img {filter:var(--blur-level);transition: filter 0.3s ease;}
+.thumbwrap:hover img {filter:none;}
+.thumbimg{width:100%;height:160px;object-fit:cover;display:block;background:#0b0b0b;}
 .videowrap{position:relative;aspect-ratio:16/9;background:#000}
+.videowrap {filter:var(--blur-level);transition: filter 0.3s ease;}
+.videowrap:hover {filter:none;}
 .play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46px;height:46px;border-radius:50%;background:rgba(0,0,0,.55);display:grid;place-items:center;border:1px solid rgba(255,255,255,.25)}
 .play:after{content:"";border-style:solid;border-width:9px 0 9px 15px;border-color:transparent transparent transparent white;display:block;margin-left:3px}
 .ribbon{position:absolute;top:8px;left:8px;background:linear-gradient(135deg,var(--accent),#0ea5a3);color:#042b2b;font-weight:600;font-size:11px;padding:3px 6px;border-radius:8px}
@@ -301,6 +377,13 @@ figcaption{padding:10px;font-size:12px;color:#9aa4b2;white-space:nowrap;overflow
 .controls a:hover{text-decoration:underline}
 .coverlink{position:absolute; inset:0; display:block; text-decoration:none}
 .coverlink:focus-visible{outline:2px solid #4b9fff; outline-offset:2px}
+.switch {position: relative;display: inline-block;width: 50px;height: 24px;}
+.switch input {opacity: 0;width: 0;height: 0;}
+.slider {position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;background-color: #ccc;transition: 0.4s;border-radius: 24px;}
+.slider::before {position: absolute;content: "";height: 16px;width: 16px;border-radius: 50%;left: 4px;bottom: 4px;background-color: white;transition: 0.4s;}
+input:checked + .slider {background-color: #4caf50;}
+input:checked + .slider::before {transform: translateX(26px);}
+.toggle-label {font-size: 15px;margin-left: 10px;pointer;color: var(--muted);}
 """
     cards = []
     for it in items:
@@ -344,12 +427,22 @@ figcaption{padding:10px;font-size:12px;color:#9aa4b2;white-space:nowrap;overflow
   <h1 style="margin:0;font-size:18px">{html.escape(title)}</h1>
   <span class="muted" style="margin-left:auto">{len(cards)} items • built {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
 </div></header>
+<div align='right'>
+    <span class='toggle-label'>Blur Thumbnails</span>
+        <label class="switch">
+        <input type="checkbox" id="toggle-switch" {toggle_state}>
+        <span class="slider"></span>
+        </label>
+</div>
 <main><div class="grid">
 {os.linesep.join(cards)}
 </div></main>
+<script src="script.js"></script>
 </body></html>"""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_doc, encoding="utf-8")
+    js_builder(out_path)
+
 
 def build_mixed(folder: pathlib.Path,
                 out_path: pathlib.Path,
@@ -361,6 +454,7 @@ def build_mixed(folder: pathlib.Path,
                 make_posters_flag: bool = True,   # official name
                 poster_time: float = 1.5,
                 poster_dir_name: str = "_posters",
+                m_blur: bool = True,
                 log=lambda *_: None,
                 **_compat):                        # accept legacy kwargs (e.g., make_posters=)
     """Build a unified gallery (images + videos) from one folder."""
@@ -407,7 +501,7 @@ def build_mixed(folder: pathlib.Path,
         })
 
     items.sort(key=lambda d: d["label"].lower())
-    write_mixed_html(out_path, title, items)
+    write_mixed_html(out_path, title, items, m_blur)
     log(f"Wrote {out_path} with {len(items)} items.")
 
 # -------- GUI -------- 
@@ -417,6 +511,10 @@ class App(tk.Tk):
         self.title("Gallery Builder")
         self.geometry("760x520")
         self.resizable(True, True)
+
+        self.p_blur = tk.BooleanVar(value=True)
+        self.v_blur = tk.BooleanVar(value=True)
+        self.m_blur = tk.BooleanVar(value=True)
         
         # ---- THEME (Dark Teal) ----
         BG="#0d1b1e"; SURFACE="#14292e"; CARD="#18363d"; LINE="#1f4b52"
@@ -532,6 +630,7 @@ class App(tk.Tk):
         self.p_out = tk.StringVar(value="index.html")
         self.p_recursive = tk.BooleanVar(value=True)
         self.p_thumbs = tk.BooleanVar(value=True)
+        # self.p_blur = tk.BooleanVar(value=True)
         self.p_thumb_size = tk.IntVar(value=480)
         self.p_thumb_dir = tk.StringVar(value="_thumbs")
 
@@ -549,17 +648,18 @@ class App(tk.Tk):
         
         ttk.Checkbutton(frm, text="Include subfolders", variable=self.p_recursive).grid(row=3, column=1, sticky="w")
         ttk.Checkbutton(frm, text="Generate thumbnails (Pillow)", variable=self.p_thumbs).grid(row=4, column=1, sticky="w")
+        ttk.Checkbutton(frm, text="Blur thumbnails", variable=self.p_blur).grid(row=5, column=1, sticky="w")
 
-        ttk.Label(frm, text="Thumb size (px):").grid(row=5, column=0, sticky="e")
-        ttk.Spinbox(frm, from_=120, to=2000, textvariable=self.p_thumb_size, width=8).grid(row=5, column=1, sticky="w")
-        ttk.Label(frm, text="Thumbs folder:").grid(row=5, column=2, sticky="e")
-        ttk.Entry(frm, textvariable=self.p_thumb_dir, width=16).grid(row=5, column=3, sticky="w")
+        ttk.Label(frm, text="Thumb size (px):").grid(row=6, column=0, sticky="e")
+        ttk.Spinbox(frm, from_=120, to=2000, textvariable=self.p_thumb_size, width=8).grid(row=6, column=1, sticky="w")
+        ttk.Label(frm, text="Thumbs folder:").grid(row=6, column=2, sticky="e")
+        ttk.Entry(frm, textvariable=self.p_thumb_dir, width=16).grid(row=6, column=3, sticky="w")
 
-        ttk.Button(frm, text="Build Photo Gallery", command=self.run_photos).grid(row=6, column=1, pady=12, sticky="w")
+        ttk.Button(frm, text="Build Photo Gallery", command=self.run_photos).grid(row=7, column=1, pady=12, sticky="w")
 
         for i in range(4):
             frm.columnconfigure(i, weight=1)
-
+    
     def browse_p_folder(self):
         d = filedialog.askdirectory(title="Select Photos Folder")
         if d:
@@ -586,10 +686,13 @@ class App(tk.Tk):
                 make_thumbnails=self.p_thumbs.get(),
                 thumb_size=int(self.p_thumb_size.get()),
                 thumb_dir_name=self.p_thumb_dir.get().strip() or "_thumbs",
+                p_blur=self.p_blur.get(),
                 log=self.log_print
+                
             )
             self.log_print("Photo gallery done.")
             self.show_done_popup(str(out))
+           
         except Exception as e:
             self.log_print(f"Error: {e}")
             messagebox.showerror("Error", str(e))
@@ -605,6 +708,7 @@ class App(tk.Tk):
         self.v_posters = tk.BooleanVar(value=True)
         self.v_poster_time = tk.DoubleVar(value=1.5)
         self.v_poster_dir = tk.StringVar(value="_posters")
+        # self.v_blur = tk.BooleanVar(value=True)
 
         frm = ttk.Frame(root); frm.pack(fill="both", expand=True, **pad)
 
@@ -620,18 +724,20 @@ class App(tk.Tk):
         
         ttk.Checkbutton(frm, text="Include subfolders", variable=self.v_recursive).grid(row=3, column=1, sticky="w")
         ttk.Checkbutton(frm, text="Generate posters (ffmpeg)", variable=self.v_posters).grid(row=4, column=1, sticky="w")
+        ttk.Checkbutton(frm, text="Blur thumbnails", variable=self.v_blur).grid(row=5, column=1, sticky="w")
 
-        ttk.Label(frm, text="Poster time (sec):").grid(row=5, column=0, sticky="e")
-        ttk.Spinbox(frm, from_=0.0, to=60.0, increment=0.5, textvariable=self.v_poster_time, width=8).grid(row=5, column=1, sticky="w")
-        ttk.Label(frm, text="Posters folder:").grid(row=5, column=2, sticky="e")
-        ttk.Entry(frm, textvariable=self.v_poster_dir, width=16).grid(row=5, column=3, sticky="w")
 
-        ttk.Button(frm, text="Build Video Gallery", command=self.run_videos).grid(row=6, column=1, pady=12, sticky="w")
+        ttk.Label(frm, text="Poster time (sec):").grid(row=6, column=0, sticky="e")
+        ttk.Spinbox(frm, from_=0.0, to=60.0, increment=0.5, textvariable=self.v_poster_time, width=8).grid(row=6, column=1, sticky="w")
+        ttk.Label(frm, text="Posters folder:").grid(row=6, column=2, sticky="e")
+        ttk.Entry(frm, textvariable=self.v_poster_dir, width=16).grid(row=6, column=3, sticky="w")
+
+        ttk.Button(frm, text="Build Video Gallery", command=self.run_videos).grid(row=7, column=1, pady=12, sticky="w")
 
         # Hint row
         hint = ttk.Label(frm, foreground="#7aa2ff",
                          text="Note: .mp4/.webm/.ogv play inline. Others (e.g., .mov) open in a new tab or external player. Original files are never modified.")
-        hint.grid(row=7, column=0, columnspan=4, sticky="w", pady=(4,0))
+        hint.grid(row=8, column=0, columnspan=4, sticky="w", pady=(4,0))
 
         for i in range(4):
             frm.columnconfigure(i, weight=1)
@@ -662,6 +768,7 @@ class App(tk.Tk):
                 make_posters_flag=self.v_posters.get(),
                 poster_time=float(self.v_poster_time.get()),
                 poster_dir_name=self.v_poster_dir.get().strip() or "_posters",
+                v_blur=self.v_blur.get(),
                 log=self.log_print
             )
             self.log_print("Video gallery done.")
@@ -683,6 +790,7 @@ class App(tk.Tk):
         self.m_thumbs = tk.BooleanVar(value=True)
         self.m_thumb_size = tk.IntVar(value=480)
         self.m_thumb_dir = tk.StringVar(value="_thumbs")
+        # self.m_blur = tk.BooleanVar(value=True)
 
         # video options
         self.m_posters = tk.BooleanVar(value=True)
@@ -705,19 +813,20 @@ class App(tk.Tk):
 
         # Image row
         ttk.Checkbutton(frm, text="Generate thumbnails (Pillow)", variable=self.m_thumbs).grid(row=4, column=1, sticky="w")
-        ttk.Label(frm, text="Thumb size (px):").grid(row=5, column=0, sticky="e")
-        ttk.Spinbox(frm, from_=120, to=2000, textvariable=self.m_thumb_size, width=8).grid(row=5, column=1, sticky="w")
-        ttk.Label(frm, text="Thumbs folder:").grid(row=5, column=2, sticky="e")
-        ttk.Entry(frm, textvariable=self.m_thumb_dir, width=16).grid(row=5, column=3, sticky="w")
+        ttk.Checkbutton(frm, text="Blur thumbnails", variable=self.m_blur).grid(row=5, column=1, sticky="w")
+        ttk.Label(frm, text="Thumb size (px):").grid(row=6, column=0, sticky="e")
+        ttk.Spinbox(frm, from_=120, to=2000, textvariable=self.m_thumb_size, width=8).grid(row=6, column=1, sticky="w")
+        ttk.Label(frm, text="Thumbs folder:").grid(row=6, column=2, sticky="e")
+        ttk.Entry(frm, textvariable=self.m_thumb_dir, width=16).grid(row=6, column=3, sticky="w")
 
         # Video row
-        ttk.Checkbutton(frm, text="Generate posters (ffmpeg)", variable=self.m_posters).grid(row=6, column=1, sticky="w", pady=(6,0))
-        ttk.Label(frm, text="Poster time (sec):").grid(row=7, column=0, sticky="e")
-        ttk.Spinbox(frm, from_=0.0, to=60.0, increment=0.5, textvariable=self.m_poster_time, width=8).grid(row=7, column=1, sticky="w")
-        ttk.Label(frm, text="Posters folder:").grid(row=7, column=2, sticky="e")
-        ttk.Entry(frm, textvariable=self.m_poster_dir, width=16).grid(row=7, column=3, sticky="w")
+        ttk.Checkbutton(frm, text="Generate posters (ffmpeg)", variable=self.m_posters).grid(row=7, column=1, sticky="w", pady=(6,0))
+        ttk.Label(frm, text="Poster time (sec):").grid(row=8, column=0, sticky="e")
+        ttk.Spinbox(frm, from_=0.0, to=60.0, increment=0.5, textvariable=self.m_poster_time, width=9).grid(row=7, column=1, sticky="w")
+        ttk.Label(frm, text="Posters folder:").grid(row=8, column=2, sticky="e")
+        ttk.Entry(frm, textvariable=self.m_poster_dir, width=16).grid(row=8, column=3, sticky="w")
 
-        ttk.Button(frm, text="Build Mixed Gallery", command=self.run_mixed).grid(row=8, column=1, pady=12, sticky="w")
+        ttk.Button(frm, text="Build Mixed Gallery", command=self.run_mixed).grid(row=9, column=1, pady=12, sticky="w")
 
         for i in range(4):
             frm.columnconfigure(i, weight=1)
@@ -747,6 +856,7 @@ class App(tk.Tk):
                 make_posters_flag=self.m_posters.get(),  # note the _flag name
                 poster_time=float(self.m_poster_time.get()),
                 poster_dir_name=self.m_poster_dir.get().strip() or "_posters",
+                m_blur=self.m_blur.get(),
                 log=self.log_print
             )
             self.log_print("Mixed gallery done.")
